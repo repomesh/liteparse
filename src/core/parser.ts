@@ -160,20 +160,31 @@ export class LiteParse {
 
     log(`Loaded PDF with ${doc.numPages} pages`);
 
-    // Extract pages
-    const pages = await this.pdfEngine.extractAllPages(
-      doc,
-      this.config.maxPages,
-      this.config.targetPages
-    );
+    let processedPages: import("./types.js").ParsedPage[];
 
-    // run BEFORE grid projection
-    if (this.ocrEngine) {
-      await this.runOCR(doc, pages, log);
+    if (this.config.experimental && this.pdfEngine instanceof LiteParseRsEngine) {
+      // Rust pipeline: extract + grid projection in one shot
+      processedPages = await this.pdfEngine.parseDocument(
+        doc,
+        this.config.maxPages,
+        this.config.targetPages
+      );
+    } else {
+      // TypeScript pipeline: extract, OCR, then grid projection
+      const pages = await this.pdfEngine.extractAllPages(
+        doc,
+        this.config.maxPages,
+        this.config.targetPages
+      );
+
+      // run BEFORE grid projection
+      if (this.ocrEngine) {
+        await this.runOCR(doc, pages, log);
+      }
+
+      // Process pages with complete grid projection (after OCR)
+      processedPages = projectPagesToGrid(pages, this.config);
     }
-
-    // Process pages with complete grid projection (after OCR)
-    const processedPages = projectPagesToGrid(pages, this.config);
 
     // Build bounding boxes if enabled
     if (this.config.preciseBoundingBox) {

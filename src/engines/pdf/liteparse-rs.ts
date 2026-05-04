@@ -5,11 +5,11 @@ import { statSync } from "node:fs";
 import path from "node:path";
 import os from "node:os";
 import { PdfEngine, PdfDocument, PageData, Image } from "./interface.js";
-import { TextItem } from "../../core/types.js";
+import { TextItem, ParsedPage } from "../../core/types.js";
 
 const execFileAsync = promisify(execFile);
 
-/** JSON output shape from the Rust CLI for a single page */
+/** JSON output shape from the Rust CLI for a single extracted page */
 interface RustPageOutput {
   page_number: number;
   page_width: number;
@@ -24,6 +24,11 @@ interface RustPageOutput {
     font_size: number | null;
     rotation: number;
   }>;
+}
+
+/** JSON output shape from the Rust CLI `parse` command (extraction + projection) */
+interface RustParsedPageOutput extends RustPageOutput {
+  text: string;
 }
 
 /** Extended PdfDocument that stores the file path for CLI invocations */
@@ -155,6 +160,32 @@ export class LiteParseRsEngine implements PdfEngine {
     // Nothing to clean up — each CLI invocation is stateless
   }
 
+  /**
+   * Run the full Rust pipeline (extract + grid projection) and return ParsedPages directly.
+   * This skips the TypeScript grid projection entirely.
+   */
+  async parseDocument(
+    doc: PdfDocument,
+    maxPages?: number,
+    targetPages?: string
+  ): Promise<ParsedPage[]> {
+    const rustDoc = doc as RustPdfDocument;
+    let parsedPages = await this.runParse(rustDoc._filePath);
+
+    // Filter to target pages if specified
+    if (targetPages) {
+      const targetSet = this.parseTargetPages(targetPages, doc.numPages);
+      parsedPages = parsedPages.filter((p) => targetSet.has(p.page_number));
+    }
+
+    // Apply maxPages limit
+    if (maxPages && parsedPages.length > maxPages) {
+      parsedPages = parsedPages.slice(0, maxPages);
+    }
+
+    return parsedPages.map((p) => this.convertParsedPage(p));
+  }
+
   // ── private helpers ──────────────────────────────────────────────
 
   /** Run the Rust CLI and parse JSON-line output */
@@ -184,6 +215,57 @@ export class LiteParseRsEngine implements PdfEngine {
     }
 
     return pages;
+  }
+
+  /** Run the Rust CLI `parse` command (extract + projection) and parse JSON output */
+  private async runParse(filePath: string): Promise<RustParsedPageOutput[]> {
+    const args = ["parse", "--pdf-path", filePath];
+
+    let stdout: string;
+    try {
+      const result = await execFileAsync(BINARY_PATH, args, {
+        maxBuffer: 100 * 1024 * 1024, // 100 MB
+      });
+      stdout = result.stdout;
+    } catch (err: unknown) {
+      const message = err instanceof Error ? err.message : String(err);
+      throw new Error(`liteparse-rs parse failed: ${message}`);
+    }
+
+    // `parse` outputs a single JSON array
+    return JSON.parse(stdout) as RustParsedPageOutput[];
+  }
+
+  /** Convert Rust CLI parsed page output to ParsedPage format */
+  private convertParsedPage(raw: RustParsedPageOutput): ParsedPage {
+    const pageHeight = raw.page_height;
+
+    const textItems: TextItem[] = raw.text_items.map((item) => {
+      // pdfium uses bottom-left origin; LiteParse expects top-left origin.
+      // Convert: y_top = page_height - y_bottom - item_height
+      const y = pageHeight - item.y - item.height;
+
+      return {
+        str: item.text,
+        x: item.x,
+        y,
+        width: item.width,
+        height: item.height,
+        w: item.width,
+        h: item.height,
+        fontName: item.font_name ?? undefined,
+        fontSize: item.font_size ?? undefined,
+        r: item.rotation,
+      };
+    });
+
+    return {
+      pageNum: raw.page_number,
+      width: raw.page_width,
+      height: raw.page_height,
+      text: raw.text,
+      textItems,
+    };
   }
 
   /** Convert Rust CLI output to the PageData format */
