@@ -473,7 +473,15 @@ fn form_lines(
             let y_within_tolerance =
                 item.rotated && (item.item.y - current_line_min_y).abs() < y_tolerance_merge;
 
-            if !line_collide && !margin_mismatch &&
+            // Prevent "snowball" effect: when two columns have slightly offset
+            // y-values, the line range keeps expanding as items from alternating
+            // columns are added, merging multiple visual rows into one mega-line.
+            // Cap the line height to a reasonable multiple of median text height.
+            let proposed_min_y = current_line_min_y.min(item.item.y);
+            let proposed_max_y = current_line_max_y.max(item.item.y + item.item.height);
+            let too_tall = (proposed_max_y - proposed_min_y) > median_height * 1.8;
+
+            if !line_collide && !margin_mismatch && !too_tall &&
                 (
                     y_within_tolerance ||
                     (item.item.y + item.item.height * 0.5 >= current_line_min_y && item.item.y + item.item.height * 0.5 <= current_line_max_y) ||
@@ -1123,6 +1131,28 @@ fn line_max_gap(line: &[ProjectedTextItem]) -> f32 {
     max_gap
 }
 
+/// Check if a line has a column-like gap: one gap that is much larger than
+/// the typical inter-word gaps on the same line. This catches two-column
+/// layouts where the absolute column gap is below the threshold but is
+/// clearly an outlier relative to other gaps on the line.
+fn line_has_column_gap(line: &[ProjectedTextItem], median_width: f32, page_width: f32) -> bool {
+    if line.len() < 2 {
+        return false;
+    }
+    let midpoint = page_width * 0.5;
+    for i in 1..line.len() {
+        let prev_end = line[i - 1].item.x + line[i - 1].item.width;
+        let cur_start = line[i].item.x;
+        let gap = cur_start - prev_end;
+        // A gap is a column separator if it's large enough (>2x median char width)
+        // AND items on either side span across the page midpoint.
+        if gap > median_width * 2.0 && prev_end < midpoint && cur_start > midpoint {
+            return true;
+        }
+    }
+    false
+}
+
 /// Check if a block of lines is flowing paragraph text (vs structured/tabular).
 fn is_flowing_text_block(
     lines: &[Vec<ProjectedTextItem>],
@@ -1131,6 +1161,7 @@ fn is_flowing_text_block(
     anchor_right: &HashMap<i32, Vec<(usize, usize)>>,
     anchor_center: &HashMap<i32, Vec<(usize, usize)>>,
     page_width: f32,
+    median_width: f32,
 ) -> bool {
     let total_anchors = anchor_left.len() + anchor_right.len() + anchor_center.len();
     if total_anchors > FLOWING_MAX_TOTAL_ANCHORS {
@@ -1142,6 +1173,7 @@ fn is_flowing_text_block(
 
     let mut non_empty_lines = 0usize;
     let mut wide_lines = 0usize;
+    let mut column_gap_lines = 0usize;
 
     for i in block.start..block.end {
         let line = &lines[i];
@@ -1155,9 +1187,18 @@ fn is_flowing_text_block(
         if line_end - line_start > page_width * FLOWING_WIDE_LINE_RATIO {
             wide_lines += 1;
         }
+        if line_has_column_gap(line, median_width, page_width) {
+            column_gap_lines += 1;
+        }
     }
 
     if non_empty_lines < FLOWING_MIN_LINES {
+        return false;
+    }
+
+    // If multiple lines have column gaps, this is a multi-column block,
+    // not flowing text.
+    if column_gap_lines >= 2 {
         return false;
     }
 
@@ -1269,6 +1310,7 @@ fn detect_and_render_flowing_lines(
 
         if line_span > page_width * FLOWING_WIDE_LINE_RATIO
             && line_max_gap(line) < column_gap_threshold
+            && !line_has_column_gap(line, median_width, page_width)
         {
             flowing_lines.insert(line_idx);
         }
@@ -1282,6 +1324,7 @@ fn detect_and_render_flowing_lines(
         if line_idx > block.start
             && flowing_lines.contains(&(line_idx - 1))
             && line_max_gap(&lines[line_idx]) < column_gap_threshold
+            && !line_has_column_gap(&lines[line_idx], median_width, page_width)
         {
             flowing_lines.insert(line_idx);
         }
@@ -1295,6 +1338,7 @@ fn detect_and_render_flowing_lines(
         if line_idx + 1 < block.end
             && flowing_lines.contains(&(line_idx + 1))
             && line_max_gap(&lines[line_idx]) < column_gap_threshold
+            && !line_has_column_gap(&lines[line_idx], median_width, page_width)
         {
             flowing_lines.insert(line_idx);
         }
@@ -1406,7 +1450,7 @@ fn project_to_grid(page: &Page, mut projection_boxes: Vec<ProjectedTextItem>) ->
         anchor_center.retain(|_, v| v.len() >= 2);
 
         // --- Flowing block detection ---
-        if is_flowing_text_block(&lines, block, &anchor_left, &anchor_right, &anchor_center, page.page_width) {
+        if is_flowing_text_block(&lines, block, &anchor_left, &anchor_right, &anchor_center, page.page_width, median_width) {
             render_flowing_block(&mut lines, block, &mut raw_lines, &mut meta, median_width);
             continue;
         }
@@ -1486,7 +1530,12 @@ fn project_to_grid(page: &Page, mut projection_boxes: Vec<ProjectedTextItem>) ->
                     let prev_char_width = (prev.width / prev_len).max(0.1);
                     if x_delta > prev_char_width * 2.0 {
                         let column_gap_threshold = page.page_width * 0.1;
-                        let same_column = x_delta < column_gap_threshold;
+                        // Also detect column gaps using the relative gap method:
+                        // if this line has a gap that's an outlier compared to other gaps,
+                        // it's a column separator even if below the absolute threshold.
+                        let has_relative_column_gap = line_has_column_gap(&lines[line_idx], median_width, page.page_width);
+                        let same_column = x_delta < column_gap_threshold
+                            && !(has_relative_column_gap && x_delta > median_width * 2.0);
 
                         let cur_snap = meta[line_idx][box_idx].snap;
                         let prev_snap = meta[line_idx][box_idx - 1].snap;
