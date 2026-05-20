@@ -1,5 +1,6 @@
-use std::{pin::Pin, time::Duration};
+use std::{io::Cursor, pin::Pin, time::Duration};
 
+use image::ImageFormat;
 use reqwest::{
     Client,
     multipart::{Form, Part},
@@ -48,8 +49,8 @@ impl OcrEngine for HttpOcrEngine {
     fn recognize<'a, 'b: 'a, 'c: 'a>(
         &'a self,
         image_data: &'c [u8],
-        _width: u32,
-        _height: u32,
+        width: u32,
+        height: u32,
         options: &'b OcrOptions,
     ) -> Pin<
         Box<
@@ -59,11 +60,18 @@ impl OcrEngine for HttpOcrEngine {
         >,
     > {
         Box::pin(async move {
+            // Encode raw RGB bytes as PNG for the server
+            let img: image::RgbImage =
+                image::ImageBuffer::from_raw(width, height, image_data.to_vec())
+                    .ok_or("failed to create image buffer from raw RGB data")?;
+            let mut png_bytes = Vec::new();
+            img.write_to(&mut Cursor::new(&mut png_bytes), ImageFormat::Png)?;
+
             let client = Client::new();
             let form = Form::new()
                 .part(
                     "file",
-                    Part::bytes(image_data.to_vec())
+                    Part::bytes(png_bytes)
                         .file_name("image.png")
                         .mime_str("image/png")?,
                 )
