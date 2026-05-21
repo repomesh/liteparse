@@ -42,6 +42,9 @@ tmp/
 temp/
 *.txt
 *.png
+!integration_tests_data/receipt.png
+!integration_tests_data/sample3.docx.doc
+!integration_tests_data/sample.pdf
 deno.json
 
 # Python files

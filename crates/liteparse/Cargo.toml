@@ -34,3 +34,6 @@ web-time = "1.1.0"
 
 [target.'cfg(not(target_arch = "wasm32"))'.dependencies]
 tokio = { version = "1.52.3", features = ["rt-multi-thread", "fs", "process"] }
+
+[dev-dependencies]
+serial_test = "3"

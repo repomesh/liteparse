@@ -1,6 +1,10 @@
+use std::path::Path;
+
 use crate::config::{LiteParseConfig, parse_target_pages};
 #[cfg(not(target_arch = "wasm32"))]
 use crate::conversion;
+#[cfg(not(target_arch = "wasm32"))]
+use crate::conversion::convert_data_to_pdf;
 use crate::error::LiteParseError;
 use crate::extract;
 use crate::ocr::OcrEngine;
@@ -55,11 +59,13 @@ impl LiteParse {
     #[cfg(not(target_arch = "wasm32"))]
     pub async fn parse(&self, input: &str) -> Result<ParseResult, LiteParseError> {
         // Resolve file path to a PdfInput (convert non-PDFs first)
+        let _tmp_dir;
         let pdf_input = if conversion::is_pdf(input) {
             PdfInput::Path(input.to_string())
         } else {
-            let converted =
-                conversion::convert_to_pdf(input, self.config.password.as_deref()).await?;
+            let (converted, tmp_dir) =
+                conversion::convert_to_pdf(input, self.config.password.as_deref(), false).await?;
+            _tmp_dir = tmp_dir;
             PdfInput::Path(converted.pdf_path)
         };
 
@@ -79,6 +85,28 @@ impl LiteParse {
 
         let t0 = web_time::Instant::now();
 
+        let mut is_converted = false;
+        let _tmp_dir: Option<tempfile::TempDir>;
+
+        let validated_input = {
+            #[cfg(target_arch = "wasm32")]
+            {
+                input
+            }
+
+            #[cfg(not(target_arch = "wasm32"))]
+            match input {
+                PdfInput::Path(p) => PdfInput::Path(p),
+                PdfInput::Bytes(b) => {
+                    let (converted, tmp_dir) =
+                        convert_data_to_pdf(b, self.config.password.as_deref()).await?;
+                    _tmp_dir = tmp_dir;
+                    is_converted = true;
+                    PdfInput::Path(converted.pdf_path)
+                }
+            }
+        };
+
         // Determine which pages to extract
         let target_pages = self
             .config
@@ -90,7 +118,7 @@ impl LiteParse {
 
         // Extract text items from PDF pages
         let mut pages = extract::extract_pages_from_input(
-            &input,
+            &validated_input,
             target_pages.as_deref(),
             self.config.max_pages,
             self.config.password.as_deref(),
@@ -135,7 +163,7 @@ impl LiteParse {
             };
             ocr_merge::ocr_and_merge_pages_from_input(
                 &mut pages,
-                &input,
+                &validated_input,
                 self.config.dpi,
                 engine,
                 &self.config.ocr_language,
@@ -165,6 +193,15 @@ impl LiteParse {
 
         let total = t2.duration_since(t0).as_secs_f64() * 1000.0;
         log(&format!("[liteparse] total: {:.1}ms", total));
+
+        // Office docs and images that are temporarily created from bytes
+        // are removed, but not PDFs, as they pass through the coversion logic
+        // and are used directly as input.
+        // With this block, we insure that temporary PDFs created from bytes and/or
+        // converted from Office/image files are cleaned up as well.
+        if is_converted && let PdfInput::Path(p) = validated_input {
+            std::fs::remove_dir_all(Path::new(&p).parent().unwrap())?;
+        }
 
         Ok(ParseResult {
             pages: parsed_pages,

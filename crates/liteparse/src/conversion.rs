@@ -1,3 +1,5 @@
+use tempfile::TempDir;
+
 use crate::error::LiteParseError;
 use std::{
     fmt::{self, Display},
@@ -82,7 +84,8 @@ pub fn is_supported_extension(path: &str) -> bool {
 pub async fn convert_to_pdf(
     path: &str,
     password: Option<&str>,
-) -> Result<ConversionResult, LiteParseError> {
+    is_temporary_path: bool,
+) -> Result<(ConversionResult, Option<TempDir>), LiteParseError> {
     let ext = Path::new(path)
         .extension()
         .and_then(|e| e.to_str())
@@ -90,10 +93,13 @@ pub async fn convert_to_pdf(
         .unwrap_or_default();
 
     if ext == "pdf" {
-        return Ok(ConversionResult {
-            pdf_path: path.to_string(),
-            original_extension: ext,
-        });
+        return Ok((
+            ConversionResult {
+                pdf_path: path.to_string(),
+                original_extension: ext,
+            },
+            None,
+        ));
     }
 
     let tool = if OFFICE_EXTENSIONS.contains(&ext.as_str())
@@ -119,11 +125,18 @@ pub async fn convert_to_pdf(
             convert_office_document(path, tmp_dir.path().to_str().unwrap(), password).await?
         }
     };
+    // Remove temporary path for Office docs/images bytes
+    if is_temporary_path {
+        tokio::fs::remove_dir_all(Path::new(path).parent().unwrap()).await?;
+    }
 
-    Ok(ConversionResult {
-        pdf_path,
-        original_extension: ext,
-    })
+    Ok((
+        ConversionResult {
+            pdf_path,
+            original_extension: ext,
+        },
+        Some(tmp_dir),
+    ))
 }
 
 /// Execute command with timeout
@@ -340,9 +353,20 @@ pub async fn convert_office_document(
              On Windows: choco install libreoffice-fresh".into()
         )
     })?;
-
+    // LibreOffice serializes on a per-user profile lock. Concurrent invocations
+    // sharing the same profile race for the lock: the loser either silently
+    // exits with status 0 producing no output, or crashes on shared state.
+    // Give every invocation its own throwaway UserInstallation profile.
+    let user_profile_dir = tempfile::Builder::new()
+        .prefix("liteparse-lo-profile-")
+        .tempdir()?;
+    let user_profile_url = format!(
+        "-env:UserInstallation=file://{}",
+        user_profile_dir.path().to_string_lossy()
+    );
     let infilter_arg;
     let mut args: Vec<&str> = vec![
+        &user_profile_url,
         "--headless",
         "--invisible",
         "--convert-to",
@@ -458,14 +482,14 @@ pub fn guess_extension_from_data(data: &[u8]) -> Option<String> {
 pub async fn convert_data_to_pdf(
     data: Vec<u8>,
     password: Option<&str>,
-) -> Result<ConversionResult, LiteParseError> {
+) -> Result<(ConversionResult, Option<TempDir>), LiteParseError> {
     let ext = guess_extension_from_data(&data);
     let tmp_dir = tempfile::Builder::new().prefix("liteparse-").tempdir()?;
     let tmp_path = tmp_dir
-        .path()
+        .keep()
         .join(format!("input.{}", ext.unwrap_or("bin".to_string())));
     tokio::fs::write(&tmp_path, data).await?;
-    convert_to_pdf(tmp_path.to_str().unwrap(), password).await
+    convert_to_pdf(tmp_path.to_str().unwrap(), password, true).await
 }
 
 #[cfg(test)]
@@ -572,14 +596,14 @@ mod tests {
 
     #[tokio::test]
     async fn test_convert_to_pdf_passthrough_pdf() {
-        let res = convert_to_pdf("/some/file.pdf", None).await.unwrap();
+        let (res, _) = convert_to_pdf("/some/file.pdf", None, false).await.unwrap();
         assert_eq!(res.pdf_path, "/some/file.pdf");
         assert_eq!(res.original_extension, "pdf");
     }
 
     #[tokio::test]
     async fn test_convert_to_pdf_unsupported() {
-        let r = convert_to_pdf("/some/file.xyz", None).await;
+        let r = convert_to_pdf("/some/file.xyz", None, false).await;
         assert!(r.is_err());
         assert!(r.unwrap_err().to_string().contains("unsupported"));
     }
