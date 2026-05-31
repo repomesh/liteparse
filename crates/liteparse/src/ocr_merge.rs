@@ -113,15 +113,29 @@ pub(crate) async fn ocr_and_merge_rendered(
     // missing Tesseract language data, which fails identically on every page)
     // from incidental per-page failures. Without this, every page logs the same
     // error and `parse()` still returns "success" with no OCR text.
+    //
+    // We additionally track whether any *text-starved* page failed: a page is
+    // rendered for OCR if it is text-starved OR merely contains an image
+    // (`needs_ocr = text_length < 20 || text_coverage < 0.15 || has_images`).
+    // A native-text PDF with a logo on every page is rendered for OCR
+    // enrichment but already has all its text. We must only fail loud when OCR
+    // failure actually destroyed a page's *only* text source — i.e. a page that
+    // had essentially no native text — otherwise a broken OCR setup would abort
+    // perfectly good native-text documents.
     let total_tasks = handles.len();
     let mut failed_tasks = 0usize;
+    let mut failed_text_starved = false;
     let mut first_error: Option<String> = None;
+
+    // Matches the `text_length < 20` threshold in `render_pages_for_ocr`.
+    const TEXT_STARVED_LEN: usize = 20;
 
     for (idx, page_number, handle) in handles {
         let ocr_results: Vec<OcrResult> = match handle.await {
             Ok(Ok(results)) => results,
             Ok(Err(e)) => {
                 failed_tasks += 1;
+                failed_text_starved |= page_native_text_len(&pages[idx]) < TEXT_STARVED_LEN;
                 // Only log the first failure to avoid flooding stderr with an
                 // identical message for every page.
                 if first_error.is_none() {
@@ -133,6 +147,7 @@ pub(crate) async fn ocr_and_merge_rendered(
             }
             Err(e) => {
                 failed_tasks += 1;
+                failed_text_starved |= page_native_text_len(&pages[idx]) < TEXT_STARVED_LEN;
                 if first_error.is_none() {
                     let msg = e.to_string();
                     eprintln!("[ocr] task panicked for page {}: {}", page_number, msg);
@@ -180,11 +195,15 @@ pub(crate) async fn ocr_and_merge_rendered(
         }
     }
 
-    // If every OCR task failed and there was at least one task, treat it as a
-    // systemic failure (e.g. missing language data / Tesseract init error)
-    // rather than silently returning a document with no OCR text. This surfaces
-    // the root cause to the caller instead of swallowing it page-by-page.
-    if total_tasks > 0 && failed_tasks == total_tasks {
+    // If every OCR task failed *and* at least one of those failures was on a
+    // text-starved page (one that had essentially no native text), treat it as
+    // a systemic failure: that page now has no text at all. Returning an error
+    // surfaces the root cause (e.g. missing language data) instead of silently
+    // emitting an empty page. We deliberately do NOT fail when the only failures
+    // were on pages that already had native text and were merely rendered for
+    // image-based OCR enrichment — a broken OCR setup must not abort an
+    // otherwise-good native-text document.
+    if total_tasks > 0 && failed_tasks == total_tasks && failed_text_starved {
         let detail = first_error.unwrap_or_else(|| "unknown error".to_string());
         return Err(LiteParseError::Ocr(format!(
             "OCR failed for all {} page(s): {}",
@@ -201,6 +220,11 @@ pub(crate) async fn ocr_and_merge_rendered(
     }
 
     Ok(())
+}
+
+/// Total length of a page's native (already-extracted) text, in bytes.
+fn page_native_text_len(page: &Page) -> usize {
+    page.text_items.iter().map(|item| item.text.len()).sum()
 }
 
 /// Check if an OCR bounding box overlaps with any existing text item.
@@ -363,6 +387,25 @@ mod tests {
         }
     }
 
+    // A page that already has plenty of native text (>= TEXT_STARVED_LEN bytes),
+    // as would be the case for a native-text PDF page that was only rendered for
+    // OCR because it also contains an image.
+    fn make_native_text_page(page_number: usize) -> Page {
+        Page {
+            page_number,
+            page_width: 100.0,
+            page_height: 100.0,
+            text_items: vec![TextItem {
+                text: "this page already has real native text content".into(),
+                x: 0.0,
+                y: 0.0,
+                width: 50.0,
+                height: 10.0,
+                ..Default::default()
+            }],
+        }
+    }
+
     // When every OCR task fails (e.g. missing language data), the function must
     // return an error instead of silently reporting success with no OCR text.
     #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
@@ -395,5 +438,42 @@ mod tests {
         let result = ocr_and_merge_rendered(&mut pages, Vec::new(), 72.0, engine, "eng", 2).await;
 
         assert!(result.is_ok(), "empty OCR set should succeed: {result:?}");
+    }
+
+    // Regression guard: when OCR fails but every failing page already had native
+    // text (it was only rendered for image-based enrichment), a broken OCR setup
+    // must NOT abort the parse — the native text is still valid output.
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    async fn test_native_text_pages_not_failed_on_ocr_error() {
+        let mut pages = vec![make_native_text_page(1), make_native_text_page(2)];
+        let rendered = vec![make_rendered(0), make_rendered(1)];
+        let engine: Arc<dyn OcrEngine> = Arc::new(FailingEngine);
+
+        let result = ocr_and_merge_rendered(&mut pages, rendered, 72.0, engine, "eng", 2).await;
+
+        assert!(
+            result.is_ok(),
+            "OCR failure on already-native-text pages must not abort the parse: {result:?}"
+        );
+        // Native text is preserved untouched.
+        assert_eq!(pages[0].text_items.len(), 1);
+        assert_eq!(pages[1].text_items.len(), 1);
+    }
+
+    // When failures span both a text-starved page and a native-text page, the
+    // text-starved page lost its only text source, so we still fail loud.
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    async fn test_mixed_failure_with_text_starved_page_returns_error() {
+        let mut pages = vec![make_native_text_page(1), make_blank_page(2)];
+        let rendered = vec![make_rendered(0), make_rendered(1)];
+        let engine: Arc<dyn OcrEngine> = Arc::new(FailingEngine);
+
+        let result = ocr_and_merge_rendered(&mut pages, rendered, 72.0, engine, "eng", 2).await;
+
+        let err = result.expect_err("a text-starved page losing all OCR must surface an error");
+        assert!(
+            err.to_string().contains("OCR failed for all 2 page(s)"),
+            "unexpected error message: {err}"
+        );
     }
 }
