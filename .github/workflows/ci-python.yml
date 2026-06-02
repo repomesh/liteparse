@@ -8,7 +8,7 @@ on:
       - "packages/python/**"
       - ".github/workflows/ci-python.yml"
   pull_request:
-    branches: [main, logan/musl-builds] # temporary, will remove once this is merged
+    branches: [main]
     paths:
       - "crates/**"
       - "packages/python/**"

@@ -8,7 +8,7 @@ on:
       - "packages/node/**"
       - ".github/workflows/ci-node.yml"
   pull_request:
-    branches: [main, logan/musl-builds] # temporary, will remove once this is merged
+    branches: [main]
     paths:
       - "crates/**"
       - "packages/node/**"
