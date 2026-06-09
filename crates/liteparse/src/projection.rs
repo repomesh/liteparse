@@ -3518,18 +3518,49 @@ fn xy_find_column_cut(
                 }
                 kk = jj;
             }
+            // Use a band-count-weighted average of per-column fills rather
+            // than the min. The min is brittle to one column having very
+            // few bands (e.g. a page-bottom region where only 1-2 columns
+            // continue) — that column's low fill drags the gate even when
+            // the dominant columns are clearly prose. A real table has
+            // uniformly low fills across all columns, so weighted-avg
+            // still rejects it. min_fill is kept for diagnostics.
             let mut min_fill = f32::INFINITY;
+            let mut weighted_sum = 0.0f32;
+            let mut weighted_n = 0.0f32;
+            let mut per_col_fill: Vec<f32> = Vec::with_capacity(n);
             for c in 0..n {
                 if band_count[c] > 0 {
-                    min_fill = min_fill.min(covered_sum[c] / band_count[c] as f32);
+                    let f = covered_sum[c] / band_count[c] as f32;
+                    per_col_fill.push(f);
+                    min_fill = min_fill.min(f);
+                    weighted_sum += f * band_count[c] as f32;
+                    weighted_n += band_count[c] as f32;
                 }
             }
+            let avg_fill = if weighted_n > 0.0 {
+                weighted_sum / weighted_n
+            } else {
+                f32::INFINITY
+            };
             if dbg {
-                eprintln!("[xy col-fill] min_fill={min_fill:.2} (gate={XY_COLUMN_MIN_FILL})");
+                eprintln!(
+                    "[xy col-fill] avg_fill={avg_fill:.2} min_fill={min_fill:.2} (gate={XY_COLUMN_MIN_FILL}) per_col=[{}] band_counts=[{}]",
+                    per_col_fill
+                        .iter()
+                        .map(|f| format!("{f:.2}"))
+                        .collect::<Vec<_>>()
+                        .join(","),
+                    band_count
+                        .iter()
+                        .map(|c| c.to_string())
+                        .collect::<Vec<_>>()
+                        .join(",")
+                );
             }
-            if min_fill.is_finite() && min_fill < XY_COLUMN_MIN_FILL {
+            if avg_fill.is_finite() && avg_fill < XY_COLUMN_MIN_FILL {
                 reject!(
-                    "N-column fill {min_fill:.2} < {} (tabular)",
+                    "N-column avg fill {avg_fill:.2} < {} (tabular)",
                     XY_COLUMN_MIN_FILL
                 );
             }
