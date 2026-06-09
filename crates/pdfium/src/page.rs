@@ -129,7 +129,10 @@ impl<'doc, 'lib: 'doc> Page<'doc, 'lib> {
         let width = (self.width() * scale).round() as i32;
         let height = (self.height() * scale).round() as i32;
 
-        let bitmap = Bitmap::new(width, height)?;
+        // SAFETY: this method is on `Page<'_, 'lib>`, whose existence proves
+        // the PDFium lock is held for `'lib`; the returned `Bitmap<'lib>` is
+        // tied to that same lock lifetime.
+        let bitmap = unsafe { Bitmap::new(width, height) }?;
 
         // Fill with white (ARGB: 0xFFFFFFFF)
         bitmap.fill_rect(0, 0, width, height, 0xFFFFFFFF);

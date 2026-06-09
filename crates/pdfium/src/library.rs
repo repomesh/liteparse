@@ -14,9 +14,12 @@ static INIT: Once = Once::new();
 /// PDFium's FFI is **not thread-safe**: concurrent calls (even across distinct
 /// documents) corrupt internal state and cause heap UB (double-free / heap
 /// corruption). Every [`Library`] handle holds this mutex for its entire
-/// lifetime, and every PDFium resource ([`Document`], `Page`, `TextPage`,
-/// `Bitmap`, `Font`) borrows from a [`Library`], so the borrow checker
-/// statically prevents PDFium work outside the lock.
+/// lifetime, and the owning PDFium resources ([`Document`], `Page`,
+/// `TextPage`, `Bitmap`) borrow from a [`Library`] via their `'lib` lifetime,
+/// so the borrow checker statically prevents PDFium work outside the lock.
+/// (`Font` is a borrowed, non-owning handle constructed through an `unsafe`
+/// fn; its lock discipline is the caller's responsibility, not statically
+/// enforced.)
 #[cfg(not(target_arch = "wasm32"))]
 fn pdfium_lock() -> &'static Mutex<()> {
     static LOCK: OnceLock<Mutex<()>> = OnceLock::new();
@@ -80,23 +83,6 @@ impl Library {
             INIT.call_once(|| unsafe { ffi!(FPDF_InitLibrary()) });
             Library { _private: () }
         }
-    }
-
-    /// Try to acquire the PDFium lock without blocking.
-    ///
-    /// Returns `None` if another thread currently holds the lock. Useful
-    /// for callers that want to fail fast (or fall back to a worker queue)
-    /// rather than block on contention.
-    #[cfg(not(target_arch = "wasm32"))]
-    pub fn try_init() -> Option<Library> {
-        pdfium_sys::dynamic::load_default().expect("failed to load pdfium shared library");
-        let guard = match pdfium_lock().try_lock() {
-            Ok(g) => g,
-            Err(std::sync::TryLockError::WouldBlock) => return None,
-            Err(std::sync::TryLockError::Poisoned(p)) => p.into_inner(),
-        };
-        INIT.call_once(|| unsafe { ffi!(FPDF_InitLibrary()) });
-        Some(Library { _guard: guard })
     }
 
     pub fn load_document(
