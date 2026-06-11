@@ -107,8 +107,19 @@ pub(crate) async fn ocr_and_merge_rendered(
     ocr_language: &str,
     num_workers: usize,
 ) -> Result<(), LiteParseError> {
-    // Phase 1: spawn OCR tasks onto the tokio runtime so they run on
-    // separate threads. A semaphore limits concurrency to `num_workers`.
+    // Phase 1: spawn one async task per page. A semaphore limits how many run
+    // `recognize` concurrently to `num_workers`.
+    //
+    // The permit MUST be acquired in async context (`acquire_owned().await`),
+    // not inside `spawn_blocking` via `block_on`. Acquiring it on a blocking
+    // thread parks that OS thread until a permit is free; with more pages than
+    // tokio's blocking pool (default `max_blocking_threads = 512`), every pool
+    // thread ends up parked waiting on the semaphore. The single task holding
+    // the permit then calls `recognize`, whose HTTP client resolves DNS via its
+    // own internal `spawn_blocking` — which can never get a thread, so the
+    // request never goes out, the permit is never released, and the whole OCR
+    // pass deadlocks. Acquiring the permit asynchronously parks the lightweight
+    // task instead, so only `num_workers` blocking threads are ever consumed.
     let num_workers = num_workers.max(1);
     let semaphore = Arc::new(tokio::sync::Semaphore::new(num_workers));
     let mut handles = Vec::with_capacity(rendered.len());
@@ -125,13 +136,25 @@ pub(crate) async fn ocr_and_merge_rendered(
         handles.push((
             r.idx,
             page_number,
-            tokio::task::spawn_blocking(move || {
-                // Block this thread until a permit is available.
-                let _permit = rt_handle
-                    .block_on(sem.acquire_owned())
-                    .expect("semaphore closed");
+            tokio::spawn(async move {
+                // Park the task (not an OS thread) until a permit is available.
+                let _permit = sem.acquire_owned().await.expect("semaphore closed");
                 let options = OcrOptions { language };
-                rt_handle.block_on(engine.recognize(&r.rgb_bytes, r.width, r.height, &options))
+                // Offload the (possibly CPU-blocking, e.g. Tesseract) recognize
+                // onto a blocking thread. Because the permit is already held,
+                // at most `num_workers` blocking threads are in use at once,
+                // leaving the rest of the pool free for the HTTP client's
+                // internal DNS resolution.
+                match tokio::task::spawn_blocking(move || {
+                    rt_handle.block_on(engine.recognize(&r.rgb_bytes, r.width, r.height, &options))
+                })
+                .await
+                {
+                    Ok(result) => result,
+                    Err(join_err) => {
+                        Err(Box::new(join_err) as Box<dyn std::error::Error + Send + Sync>)
+                    }
+                }
             }),
         ));
     }
