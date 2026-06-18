@@ -21,6 +21,8 @@ export interface LiteParseConfig {
   ocrLanguage: string;
   ocrEnabled: boolean;
   ocrServerUrl?: string;
+  /** Extra HTTP headers sent with every request to `ocrServerUrl`. */
+  ocrServerHeaders?: Record<string, string>;
   tessdataPath?: string;
   maxPages: number;
   targetPages?: string;
@@ -130,6 +132,7 @@ export class LiteParse {
       ocrLanguage: userConfig.ocrLanguage,
       ocrEnabled: userConfig.ocrEnabled,
       ocrServerUrl: userConfig.ocrServerUrl,
+      ocrServerHeaders: userConfig.ocrServerHeaders,
       tessdataPath: userConfig.tessdataPath,
       maxPages: userConfig.maxPages,
       targetPages: userConfig.targetPages,
@@ -151,6 +154,7 @@ export class LiteParse {
       ocrLanguage: resolved.ocrLanguage ?? "eng",
       ocrEnabled: resolved.ocrEnabled ?? true,
       ocrServerUrl: resolved.ocrServerUrl ?? undefined,
+      ocrServerHeaders: resolved.ocrServerHeaders ?? undefined,
       tessdataPath: resolved.tessdataPath ?? undefined,
       maxPages: resolved.maxPages ?? 1000,
       targetPages: resolved.targetPages ?? undefined,

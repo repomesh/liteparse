@@ -1,3 +1,5 @@
+use std::collections::HashMap;
+
 use pyo3::prelude::*;
 use pyo3::types::PyBytes;
 
@@ -246,6 +248,8 @@ struct PyLiteParseConfig {
     #[pyo3(get)]
     ocr_server_url: Option<String>,
     #[pyo3(get)]
+    ocr_server_headers: Option<HashMap<String, String>>,
+    #[pyo3(get)]
     tessdata_path: Option<String>,
     #[pyo3(get)]
     max_pages: usize,
@@ -281,6 +285,11 @@ impl PyLiteParseConfig {
             ocr_language: cfg.ocr_language.clone(),
             ocr_enabled: cfg.ocr_enabled,
             ocr_server_url: cfg.ocr_server_url.clone(),
+            ocr_server_headers: if cfg.ocr_server_headers.is_empty() {
+                None
+            } else {
+                Some(cfg.ocr_server_headers.iter().cloned().collect())
+            },
             tessdata_path: cfg.tessdata_path.clone(),
             max_pages: cfg.max_pages,
             target_pages: cfg.target_pages.clone(),
@@ -317,6 +326,7 @@ impl LiteParse {
         ocr_language = None,
         ocr_enabled = None,
         ocr_server_url = None,
+        ocr_server_headers = None,
         tessdata_path = None,
         max_pages = None,
         target_pages = None,
@@ -333,6 +343,7 @@ impl LiteParse {
         ocr_language: Option<String>,
         ocr_enabled: Option<bool>,
         ocr_server_url: Option<String>,
+        ocr_server_headers: Option<HashMap<String, String>>,
         tessdata_path: Option<String>,
         max_pages: Option<usize>,
         target_pages: Option<String>,
@@ -354,6 +365,9 @@ impl LiteParse {
         }
         if let Some(v) = ocr_server_url {
             cfg.ocr_server_url = Some(v);
+        }
+        if let Some(v) = ocr_server_headers {
+            cfg.ocr_server_headers = v.into_iter().collect();
         }
         if let Some(v) = tessdata_path {
             cfg.tessdata_path = Some(v);

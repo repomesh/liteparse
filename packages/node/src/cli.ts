@@ -10,6 +10,23 @@ program
   .description("Fast, lightweight PDF and document parsing")
   .version("2.0.0");
 
+/** Collect repeated `--ocr-server-header "Name: Value"` flags into an object. */
+function collectHeader(
+  value: string,
+  previous: Record<string, string> = {},
+): Record<string, string> {
+  const idx = value.indexOf(":");
+  if (idx === -1) {
+    throw new Error(`invalid header '${value}', expected 'Name: Value'`);
+  }
+  const name = value.slice(0, idx).trim();
+  if (name === "") {
+    throw new Error(`invalid header '${value}', empty header name`);
+  }
+  previous[name] = value.slice(idx + 1).trim();
+  return previous;
+}
+
 program
   .command("parse")
   .description("Parse a document and extract text")
@@ -26,6 +43,11 @@ program
   )
   .option("--no-links", "Disable hyperlink extraction (emit plain anchor text)")
   .option("--ocr-server-url <url>", "HTTP OCR server URL")
+  .option(
+    "--ocr-server-header <header>",
+    'Extra header for OCR server requests, "Name: Value" (repeatable)',
+    collectHeader,
+  )
   .option("--no-ocr", "Disable OCR")
   .option("--ocr-language <lang>", "OCR language (default: eng)")
   .option("--max-pages <n>", "Max pages to parse", parseInt)
@@ -58,6 +80,8 @@ program
       if (opts.links === false) config.extractLinks = false;
       if (opts.ocrServerUrl)
         config.ocrServerUrl = opts.ocrServerUrl as string;
+      if (opts.ocrServerHeader)
+        config.ocrServerHeaders = opts.ocrServerHeader as Record<string, string>;
       if (opts.ocr === false) config.ocrEnabled = false;
       if (opts.ocrLanguage) config.ocrLanguage = opts.ocrLanguage as string;
       if (opts.maxPages) config.maxPages = opts.maxPages as number;
@@ -189,6 +213,11 @@ program
   .option("--no-ocr", "Disable OCR")
   .option("--ocr-language <lang>", "OCR language (default: eng)")
   .option("--ocr-server-url <url>", "HTTP OCR server URL")
+  .option(
+    "--ocr-server-header <header>",
+    'Extra header for OCR server requests, "Name: Value" (repeatable)',
+    collectHeader,
+  )
   .option("--max-pages <n>", "Max pages to parse per file", parseInt)
   .option("--dpi <dpi>", "Rendering DPI", parseFloat)
   .option("--recursive", "Recursively search input directory")
@@ -210,6 +239,8 @@ program
         if (opts.ocrLanguage) config.ocrLanguage = opts.ocrLanguage as string;
         if (opts.ocrServerUrl)
           config.ocrServerUrl = opts.ocrServerUrl as string;
+        if (opts.ocrServerHeader)
+          config.ocrServerHeaders = opts.ocrServerHeader as Record<string, string>;
         if (opts.maxPages) config.maxPages = opts.maxPages as number;
         if (opts.dpi) config.dpi = opts.dpi as number;
         if (opts.password) config.password = opts.password as string;

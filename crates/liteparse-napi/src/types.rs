@@ -1,3 +1,5 @@
+use std::collections::HashMap;
+
 use napi_derive::napi;
 
 use liteparse::config::{ImageMode, LiteParseConfig, OutputFormat};
@@ -17,6 +19,9 @@ pub struct JsLiteParseConfig {
     pub ocr_enabled: Option<bool>,
     /// HTTP OCR server URL. If set, uses HTTP OCR instead of Tesseract.
     pub ocr_server_url: Option<String>,
+    /// Extra HTTP headers sent with every request to `ocrServerUrl`
+    /// (e.g. `{ Authorization: "Bearer <token>" }`).
+    pub ocr_server_headers: Option<HashMap<String, String>>,
     /// Path to tessdata directory for Tesseract.
     pub tessdata_path: Option<String>,
     /// Maximum number of pages to parse.
@@ -55,6 +60,9 @@ impl JsLiteParseConfig {
         }
         if let Some(v) = self.ocr_server_url {
             cfg.ocr_server_url = Some(v);
+        }
+        if let Some(v) = self.ocr_server_headers {
+            cfg.ocr_server_headers = v.into_iter().collect();
         }
         if let Some(v) = self.tessdata_path {
             cfg.tessdata_path = Some(v);
@@ -105,6 +113,11 @@ impl JsLiteParseConfig {
             ocr_language: Some(cfg.ocr_language.clone()),
             ocr_enabled: Some(cfg.ocr_enabled),
             ocr_server_url: cfg.ocr_server_url.clone(),
+            ocr_server_headers: if cfg.ocr_server_headers.is_empty() {
+                None
+            } else {
+                Some(cfg.ocr_server_headers.iter().cloned().collect())
+            },
             tessdata_path: cfg.tessdata_path.clone(),
             max_pages: Some(cfg.max_pages as u32),
             target_pages: cfg.target_pages.clone(),

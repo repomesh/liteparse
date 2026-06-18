@@ -1,7 +1,7 @@
 """LiteParse Python wrapper - native Rust bindings via PyO3."""
 
 from pathlib import Path
-from typing import Any, List, Optional, Union
+from typing import Any, Dict, List, Optional, Union
 
 from liteparse._liteparse import LiteParse as _NativeLiteParse
 from liteparse._liteparse import search_items as _native_search_items
@@ -77,6 +77,7 @@ class LiteParse:
         *,
         ocr_enabled: Optional[bool] = None,
         ocr_server_url: Optional[str] = None,
+        ocr_server_headers: Optional[Dict[str, str]] = None,
         ocr_language: Optional[str] = None,
         tessdata_path: Optional[str] = None,
         max_pages: Optional[int] = None,
@@ -96,6 +97,8 @@ class LiteParse:
         Args:
             ocr_enabled: Whether to enable OCR for scanned documents (default: True)
             ocr_server_url: URL of HTTP OCR server (uses Tesseract if not provided)
+            ocr_server_headers: Extra HTTP headers sent with every request to
+                ``ocr_server_url`` (e.g. ``{"Authorization": "Bearer <token>"}``)
             ocr_language: Language code for OCR (e.g., "eng", "fra")
             tessdata_path: Path to tessdata directory for Tesseract
             max_pages: Maximum number of pages to parse
@@ -114,6 +117,8 @@ class LiteParse:
             kwargs["ocr_enabled"] = ocr_enabled
         if ocr_server_url is not None:
             kwargs["ocr_server_url"] = ocr_server_url
+        if ocr_server_headers is not None:
+            kwargs["ocr_server_headers"] = ocr_server_headers
         if ocr_language is not None:
             kwargs["ocr_language"] = ocr_language
         if tessdata_path is not None:
@@ -225,6 +230,7 @@ class LiteParse:
             ocr_language=cfg.ocr_language,
             ocr_enabled=cfg.ocr_enabled,
             ocr_server_url=cfg.ocr_server_url,
+            ocr_server_headers=cfg.ocr_server_headers,
             tessdata_path=cfg.tessdata_path,
             max_pages=cfg.max_pages,
             target_pages=cfg.target_pages,

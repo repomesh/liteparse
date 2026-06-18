@@ -7,6 +7,7 @@
 
 mod wasi_stubs;
 
+use std::collections::HashMap;
 use std::pin::Pin;
 
 use js_sys::{Function, Reflect, Uint8Array};
@@ -40,6 +41,7 @@ struct JsLiteParseConfig {
     ocr_language: Option<String>,
     ocr_enabled: Option<bool>,
     ocr_server_url: Option<String>,
+    ocr_server_headers: Option<HashMap<String, String>>,
     tessdata_path: Option<String>,
     max_pages: Option<usize>,
     target_pages: Option<String>,
@@ -63,6 +65,9 @@ impl JsLiteParseConfig {
         }
         if self.ocr_server_url.is_some() {
             cfg.ocr_server_url = self.ocr_server_url;
+        }
+        if let Some(v) = self.ocr_server_headers {
+            cfg.ocr_server_headers = v.into_iter().collect();
         }
         if self.tessdata_path.is_some() {
             cfg.tessdata_path = self.tessdata_path;
@@ -117,6 +122,11 @@ impl JsLiteParseConfig {
             ocr_language: Some(cfg.ocr_language.clone()),
             ocr_enabled: Some(cfg.ocr_enabled),
             ocr_server_url: cfg.ocr_server_url.clone(),
+            ocr_server_headers: if cfg.ocr_server_headers.is_empty() {
+                None
+            } else {
+                Some(cfg.ocr_server_headers.iter().cloned().collect())
+            },
             tessdata_path: cfg.tessdata_path.clone(),
             max_pages: Some(cfg.max_pages),
             target_pages: cfg.target_pages.clone(),

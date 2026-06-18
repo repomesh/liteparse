@@ -38,6 +38,10 @@ struct ParseCommand {
     ocr_language: String,
     #[arg(long, default_value = None)]
     ocr_server_url: Option<String>,
+    /// Extra header for OCR server requests, "Name: Value" (repeatable).
+    /// e.g. --ocr-server-header "Authorization: Bearer <token>"
+    #[arg(long = "ocr-server-header", value_parser = parse_header)]
+    ocr_server_headers: Vec<(String, String)>,
     #[arg(long)]
     tessdata_path: Option<String>,
     #[arg(long, default_value = "1000")]
@@ -97,6 +101,10 @@ struct BatchParseCommand {
     ocr_language: String,
     #[arg(long, default_value = None)]
     ocr_server_url: Option<String>,
+    /// Extra header for OCR server requests, "Name: Value" (repeatable).
+    /// e.g. --ocr-server-header "Authorization: Bearer <token>"
+    #[arg(long = "ocr-server-header", value_parser = parse_header)]
+    ocr_server_headers: Vec<(String, String)>,
     #[arg(long)]
     tessdata_path: Option<String>,
     #[arg(long, default_value = "1000")]
@@ -113,6 +121,18 @@ struct BatchParseCommand {
     quiet: bool,
     #[arg(long)]
     num_workers: Option<usize>,
+}
+
+/// Parse a `Name: Value` header string into a `(name, value)` pair.
+fn parse_header(s: &str) -> Result<(String, String), String> {
+    let (name, value) = s
+        .split_once(':')
+        .ok_or_else(|| format!("invalid header '{}', expected 'Name: Value'", s))?;
+    let name = name.trim();
+    if name.is_empty() {
+        return Err(format!("invalid header '{}', empty header name", s));
+    }
+    Ok((name.to_string(), value.trim().to_string()))
 }
 
 fn parse_output_format(s: &str) -> Result<OutputFormat, String> {
@@ -160,6 +180,7 @@ pub fn run_cli(args: Vec<String>) -> Result<(), Box<dyn std::error::Error>> {
                 password: cmd.password,
                 quiet: cmd.quiet,
                 ocr_server_url: cmd.ocr_server_url,
+                ocr_server_headers: cmd.ocr_server_headers,
                 image_mode,
                 extract_links: !cmd.no_links,
                 ..Default::default()
@@ -256,6 +277,7 @@ pub fn run_cli(args: Vec<String>) -> Result<(), Box<dyn std::error::Error>> {
                 password: cmd.password,
                 quiet: cmd.quiet,
                 ocr_server_url: cmd.ocr_server_url,
+                ocr_server_headers: cmd.ocr_server_headers,
                 ..Default::default()
             };
             if let Some(n) = cmd.num_workers {

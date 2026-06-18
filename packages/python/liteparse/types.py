@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from typing import Iterator, List, Optional
+from typing import Dict, Iterator, List, Optional
 
 
 @dataclass
@@ -77,6 +77,7 @@ class LiteParseConfig:
     ocr_language: str
     ocr_enabled: bool
     ocr_server_url: Optional[str]
+    ocr_server_headers: Optional[Dict[str, str]]
     tessdata_path: Optional[str]
     max_pages: int
     target_pages: Optional[str]
