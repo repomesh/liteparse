@@ -72,7 +72,17 @@ impl Default for LiteParseConfig {
     fn default() -> Self {
         Self {
             ocr_language: "eng".to_string(),
-            ocr_enabled: true,
+            // OCR is on by default only when a built-in engine is compiled in
+            // (the `tesseract` feature). Builds without a built-in engine
+            // (`tesseract` disabled, or WASM) default to OFF, so a consumer that
+            // just wants native text extraction works out of the box instead of
+            // hitting "OCR enabled but no engine available". OCR is still fully
+            // available in those builds by opting in explicitly: set
+            // `ocr_enabled = true` together with an `ocr_server_url` (or, on
+            // WASM, an `ocrEngine` callback). That explicit request still fails
+            // fast if no engine is reachable, so a real misconfiguration is
+            // never silently swallowed.
+            ocr_enabled: cfg!(feature = "tesseract"),
             ocr_server_url: None,
             ocr_server_headers: Vec::new(),
             tessdata_path: None,
@@ -196,7 +206,8 @@ mod tests {
     fn test_default_config() {
         let c = LiteParseConfig::default();
         assert_eq!(c.ocr_language, "eng");
-        assert!(c.ocr_enabled);
+        // OCR defaults on only when a built-in engine is compiled in.
+        assert_eq!(c.ocr_enabled, cfg!(feature = "tesseract"));
         assert_eq!(c.max_pages, 1000);
         assert_eq!(c.dpi, 150.0);
         assert_eq!(c.output_format, OutputFormat::Json);
