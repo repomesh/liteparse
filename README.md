@@ -122,7 +122,7 @@ Install via your preferred package manager. All versions (except WASM) ship with
 
 | Language | Install | Library Docs |
 |----------|---------|--------------|
-| **Node.js / TypeScript** | `npm i @llamaindex/liteparse` | [Node.js README](packages/node/README.md) |
+| **Node.js / TypeScript** | `npm i -g @llamaindex/liteparse` | [Node.js README](packages/node/README.md) |
 | **Python** | `pip install liteparse` | [Python README](packages/python/README.md) |
 | **Rust** | `cargo install liteparse` (CLI) / `cargo add liteparse` (lib) | [Rust README (crates.io)](crates/liteparse/README.md) |
 | **Browser (WASM)** | `npm i @llamaindex/liteparse-wasm` | [WASM README](packages/wasm/README.md) |
