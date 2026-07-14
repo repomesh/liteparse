@@ -27,6 +27,7 @@ mod tests {
             figures: vec![],
             struct_nodes: vec![],
             image_refs: vec![],
+            complexity: None,
         }
     }
 

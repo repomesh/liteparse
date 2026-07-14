@@ -66,6 +66,10 @@ pub struct JsLiteParseConfig {
     /// Drop diagonal text (rotation >2° off the nearest right angle). Default
     /// false. Use to exclude rotated watermarks/stamps from the output.
     pub skip_diagonal_text: Option<bool>,
+    /// Compute per-page complexity signals during parse and attach them to each
+    /// page as `ParsedPage.complexity` (the same signals `isComplex` returns).
+    /// Default false; enabling it runs an extra vector-text detection pass.
+    pub include_complexity: Option<bool>,
 }
 
 /// A page sub-region as the fraction cropped from each side (top-left origin,
@@ -155,6 +159,9 @@ impl JsLiteParseConfig {
         if let Some(v) = self.skip_diagonal_text {
             cfg.skip_diagonal_text = v;
         }
+        if let Some(v) = self.include_complexity {
+            cfg.include_complexity = v;
+        }
         cfg
     }
 
@@ -202,6 +209,7 @@ impl JsLiteParseConfig {
                 left: c.left as f64,
             }),
             skip_diagonal_text: Some(cfg.skip_diagonal_text),
+            include_complexity: Some(cfg.include_complexity),
         }
     }
 }
@@ -403,6 +411,9 @@ pub struct JsParsedPage {
     pub text: String,
     pub markdown: String,
     pub text_items: Vec<JsTextItem>,
+    /// Per-page complexity signals. Present only when parsing was configured
+    /// with `includeComplexity`; `undefined`/`None` otherwise.
+    pub complexity: Option<JsPageComplexityStats>,
 }
 
 impl JsParsedPage {
@@ -414,6 +425,10 @@ impl JsParsedPage {
             text: page.text.clone(),
             markdown: page.markdown.clone(),
             text_items: page.text_items.iter().map(JsTextItem::from_rust).collect(),
+            complexity: page
+                .complexity
+                .as_ref()
+                .map(JsPageComplexityStats::from_rust),
         }
     }
 }

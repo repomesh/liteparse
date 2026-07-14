@@ -2909,6 +2909,7 @@ pub fn project_pages_to_grid(pages: Vec<Page>) -> Vec<ParsedPage> {
                 figures,
                 struct_nodes: page.struct_nodes,
                 image_refs: page.image_refs,
+                complexity: None,
             }
         })
         .collect()

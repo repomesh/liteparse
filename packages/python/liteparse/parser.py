@@ -19,6 +19,25 @@ from .types import (
 )
 
 
+def _convert_complexity(s: Any) -> PageComplexityStats:
+    """Convert a native PyPageComplexityStats to our Python dataclass."""
+    return PageComplexityStats(
+        page_number=s.page_number,
+        text_length=s.text_length,
+        text_coverage=s.text_coverage,
+        has_substantial_images=s.has_substantial_images,
+        image_block_count=s.image_block_count,
+        image_coverage=s.image_coverage,
+        largest_image_coverage=s.largest_image_coverage,
+        full_page_image=s.full_page_image,
+        uncovered_vector_area=s.uncovered_vector_area,
+        is_garbled=s.is_garbled,
+        page_area=s.page_area,
+        needs_ocr=s.needs_ocr,
+        reasons=list(s.reasons),
+    )
+
+
 def _convert_native_result(native_result: Any) -> ParseResult:
     """Convert a native PyParseResult to our Python ParseResult."""
     pages: List[ParsedPage] = []
@@ -47,6 +66,7 @@ def _convert_native_result(native_result: Any) -> ParseResult:
             )
             for item in native_page.text_items
         ]
+        native_complexity = getattr(native_page, "complexity", None)
         pages.append(
             ParsedPage(
                 page_num=native_page.page_num,
@@ -55,6 +75,11 @@ def _convert_native_result(native_result: Any) -> ParseResult:
                 text=native_page.text,
                 markdown=native_page.markdown,
                 text_items=text_items,
+                complexity=(
+                    _convert_complexity(native_complexity)
+                    if native_complexity is not None
+                    else None
+                ),
             )
         )
     images = [
@@ -109,6 +134,7 @@ class LiteParse:
         emit_word_boxes: Optional[bool] = None,
         crop_box: Optional[Tuple[float, float, float, float]] = None,
         skip_diagonal_text: Optional[bool] = None,
+        include_complexity: Optional[bool] = None,
     ):
         """
         Initialize LiteParse parser.
@@ -154,6 +180,11 @@ class LiteParse:
             skip_diagonal_text: Drop diagonal text — items whose rotation is
                 more than 2° off the nearest right angle (0/90/180/270).
                 Default False. Use to exclude rotated watermarks/stamps.
+            include_complexity: Compute per-page complexity signals during
+                :meth:`parse` and attach them to each page as
+                ``ParsedPage.complexity`` (the same :meth:`is_complex` returns).
+                Default False; enabling it runs an extra vector-text detection
+                pass.
         """
         kwargs = {}
         if ocr_enabled is not None:
@@ -196,6 +227,8 @@ class LiteParse:
             kwargs["crop_box"] = crop_box
         if skip_diagonal_text is not None:
             kwargs["skip_diagonal_text"] = skip_diagonal_text
+        if include_complexity is not None:
+            kwargs["include_complexity"] = include_complexity
 
         self._native = _NativeLiteParse(**kwargs)
 
@@ -259,24 +292,7 @@ class LiteParse:
                 if not file_path.exists():
                     raise FileNotFoundError(f"File not found: {file_path}")
                 native_stats = self._native.is_complex(str(file_path.absolute()))
-            return [
-                PageComplexityStats(
-                    page_number=s.page_number,
-                    text_length=s.text_length,
-                    text_coverage=s.text_coverage,
-                    has_substantial_images=s.has_substantial_images,
-                    image_block_count=s.image_block_count,
-                    image_coverage=s.image_coverage,
-                    largest_image_coverage=s.largest_image_coverage,
-                    full_page_image=s.full_page_image,
-                    uncovered_vector_area=s.uncovered_vector_area,
-                    is_garbled=s.is_garbled,
-                    page_area=s.page_area,
-                    needs_ocr=s.needs_ocr,
-                    reasons=list(s.reasons),
-                )
-                for s in native_stats
-            ]
+            return [_convert_complexity(s) for s in native_stats]
         except FileNotFoundError:
             raise
         except Exception as e:

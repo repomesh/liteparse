@@ -72,6 +72,10 @@ struct ParseCommand {
     /// `[text](url)` in markdown output; pass this to emit plain anchor text.
     #[arg(long)]
     no_links: bool,
+    /// Include per-page complexity signals as a `complexity` object on each
+    /// page of JSON output. Off by default.
+    #[arg(long)]
+    complexity: bool,
 }
 
 #[derive(Args, Debug)]
@@ -121,6 +125,10 @@ struct BatchParseCommand {
     quiet: bool,
     #[arg(long)]
     num_workers: Option<usize>,
+    /// Include per-page complexity signals as a `complexity` object on each
+    /// page of JSON output. Off by default.
+    #[arg(long)]
+    complexity: bool,
 }
 
 /// Parse a `Name: Value` header string into a `(name, value)` pair.
@@ -183,6 +191,7 @@ pub fn run_cli(args: Vec<String>) -> Result<(), Box<dyn std::error::Error>> {
                 ocr_server_headers: cmd.ocr_server_headers,
                 image_mode,
                 extract_links: !cmd.no_links,
+                include_complexity: cmd.complexity,
                 ..Default::default()
             };
             if let Some(n) = cmd.num_workers {
@@ -278,6 +287,7 @@ pub fn run_cli(args: Vec<String>) -> Result<(), Box<dyn std::error::Error>> {
                 quiet: cmd.quiet,
                 ocr_server_url: cmd.ocr_server_url,
                 ocr_server_headers: cmd.ocr_server_headers,
+                include_complexity: cmd.complexity,
                 ..Default::default()
             };
             if let Some(n) = cmd.num_workers {

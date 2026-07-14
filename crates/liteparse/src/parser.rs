@@ -285,7 +285,7 @@ impl LiteParse {
         };
         let ocr_grayscale = ocr_engine.as_ref().is_some_and(|e| e.prefers_grayscale());
 
-        let (pages, ocr_rendered, outline, images) = {
+        let (pages, ocr_rendered, outline, images, complexity) = {
             let lib = Library::init();
             let document = extract::load_document_from_input(&lib, &validated_input, password)?;
             let outline = extract::extract_outline(&document);
@@ -324,8 +324,22 @@ impl LiteParse {
             } else {
                 Vec::new()
             };
+            // Per-page complexity signals, opt-in via `include_complexity`. Needs
+            // the live PDFium document (image / filled-path geometry), so it runs
+            // here inside the lock; empty otherwise so the cheap path pays nothing.
+            let complexity = if self.config.include_complexity {
+                pages
+                    .iter()
+                    .map(|page| {
+                        let page_obj = document.page((page.page_number - 1) as i32)?;
+                        ocr_merge::calculate_page_complexity(page, &page_obj)
+                    })
+                    .collect::<Result<Vec<_>, _>>()?
+            } else {
+                Vec::new()
+            };
             // `lib` is dropped here, releasing the PDFium lock.
-            (pages, rendered, outline, images)
+            (pages, rendered, outline, images, complexity)
         };
         let mut pages = pages;
         let t1 = web_time::Instant::now();
@@ -360,6 +374,12 @@ impl LiteParse {
 
         // Grid projection
         let mut parsed_pages = projection::project_pages_to_grid(pages);
+        // Attach per-page complexity signals (empty unless `include_complexity`).
+        // Projection is 1:1 with the input pages and preserves order, so a
+        // positional zip aligns each page with its own stats.
+        for (page, stats) in parsed_pages.iter_mut().zip(complexity) {
+            page.complexity = Some(stats);
+        }
         let t2 = web_time::Instant::now();
         log(&format!(
             "[liteparse] project: {:.1}ms",

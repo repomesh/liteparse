@@ -68,6 +68,10 @@ pub struct LiteParseConfig {
     /// Drop diagonal text (rotation >2° off the nearest right angle). Default
     /// false. Use to exclude rotated watermarks/stamps from the output.
     skip_diagonal_text: Option<bool>,
+    /// Compute per-page complexity signals during parse and attach them to each
+    /// page as `ParsedPage.complexity` (the same signals `isComplex` returns).
+    /// Default false; enabling it runs an extra vector-text detection pass.
+    include_complexity: Option<bool>,
 }
 
 /// A page sub-region as the fraction cropped from each side (top-left origin,
@@ -161,6 +165,9 @@ impl LiteParseConfig {
         if let Some(v) = self.skip_diagonal_text {
             cfg.skip_diagonal_text = v;
         }
+        if let Some(v) = self.include_complexity {
+            cfg.include_complexity = v;
+        }
         cfg.num_workers = 1;
         Ok(cfg)
     }
@@ -203,6 +210,7 @@ impl LiteParseConfig {
                 left: c.left,
             }),
             skip_diagonal_text: Some(cfg.skip_diagonal_text),
+            include_complexity: Some(cfg.include_complexity),
         }
     }
 }
@@ -255,6 +263,10 @@ pub struct ParsedPage {
     pub text: String,
     pub markdown: String,
     pub text_items: Vec<TextItem>,
+    /// Per-page complexity signals. Present only when parsing was configured
+    /// with `includeComplexity`; omitted otherwise.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub complexity: Option<PageComplexityStats>,
 }
 
 #[derive(Serialize, Tsify)]
@@ -492,6 +504,7 @@ impl LiteParse {
                         },
                     })
                     .collect(),
+                complexity: p.complexity.as_ref().map(PageComplexityStats::from_rust),
             })
             .collect();
 

@@ -180,6 +180,11 @@ pub struct ParsedPage {
     /// page has no embedded images. Not part of JSON/text output.
     #[serde(skip)]
     pub image_refs: Vec<ImageRef>,
+    /// Per-page complexity signals (the same the `is_complex` API returns).
+    /// Populated only when `LiteParseConfig::include_complexity` is set;
+    /// `None` otherwise. Surfaced as a per-page `complexity` object in JSON.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub complexity: Option<crate::ocr_merge::PageComplexityStats>,
 }
 
 /// One embedded raster image on a page. `id` is a stable, page-scoped slug

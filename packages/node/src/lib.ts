@@ -71,6 +71,13 @@ export interface LiteParseConfig {
    * watermarks/stamps from the output.
    */
   skipDiagonalText: boolean;
+  /**
+   * Compute per-page complexity signals during {@link LiteParse.parse} and
+   * attach them to each page as {@link ParsedPage.complexity} (the same signals
+   * {@link LiteParse.isComplex} returns). Default false; enabling it runs an
+   * extra vector-text detection pass.
+   */
+  includeComplexity: boolean;
 }
 
 /**
@@ -161,6 +168,12 @@ export interface ParsedPage {
   text: string;
   markdown: string;
   textItems: TextItem[];
+  /**
+   * Per-page complexity signals (the same {@link LiteParse.isComplex} returns).
+   * Present only when parsing with `includeComplexity: true`; `undefined`
+   * otherwise.
+   */
+  complexity?: PageComplexityStats;
 }
 
 export interface ExtractedImage {
@@ -253,6 +266,7 @@ export class LiteParse {
       emitWordBoxes: userConfig.emitWordBoxes,
       cropBox: userConfig.cropBox,
       skipDiagonalText: userConfig.skipDiagonalText,
+      includeComplexity: userConfig.includeComplexity,
     };
 
     this._native = new native.LiteParse(nativeConfig);
@@ -280,6 +294,7 @@ export class LiteParse {
       emitWordBoxes: resolved.emitWordBoxes ?? false,
       cropBox: resolved.cropBox ?? undefined,
       skipDiagonalText: resolved.skipDiagonalText ?? false,
+      includeComplexity: resolved.includeComplexity ?? false,
     };
   }
 
@@ -327,21 +342,7 @@ export class LiteParse {
       typeof input === "string" ? input : Buffer.from(input);
     const stats: NativePageComplexityStats[] =
       await this._native.isComplex(nativeInput);
-    return stats.map((s) => ({
-      pageNumber: s.pageNumber,
-      textLength: s.textLength,
-      textCoverage: s.textCoverage,
-      hasSubstantialImages: s.hasSubstantialImages,
-      imageBlockCount: s.imageBlockCount,
-      imageCoverage: s.imageCoverage,
-      largestImageCoverage: s.largestImageCoverage,
-      fullPageImage: s.fullPageImage,
-      uncoveredVectorArea: s.uncoveredVectorArea ?? undefined,
-      isGarbled: s.isGarbled,
-      pageArea: s.pageArea,
-      needsOcr: s.needsOcr,
-      reasons: s.reasons,
-    }));
+    return stats.map(toComplexity);
   }
 
   async screenshot(
@@ -367,6 +368,24 @@ export class LiteParse {
   }
 }
 
+function toComplexity(s: NativePageComplexityStats): PageComplexityStats {
+  return {
+    pageNumber: s.pageNumber,
+    textLength: s.textLength,
+    textCoverage: s.textCoverage,
+    hasSubstantialImages: s.hasSubstantialImages,
+    imageBlockCount: s.imageBlockCount,
+    imageCoverage: s.imageCoverage,
+    largestImageCoverage: s.largestImageCoverage,
+    fullPageImage: s.fullPageImage,
+    uncoveredVectorArea: s.uncoveredVectorArea ?? undefined,
+    isGarbled: s.isGarbled,
+    pageArea: s.pageArea,
+    needsOcr: s.needsOcr,
+    reasons: s.reasons,
+  };
+}
+
 function toPage(p: NativeParsedPage): ParsedPage {
   return {
     pageNum: p.pageNum,
@@ -375,6 +394,7 @@ function toPage(p: NativeParsedPage): ParsedPage {
     text: p.text,
     markdown: p.markdown,
     textItems: p.textItems.map(toTextItem),
+    complexity: p.complexity ? toComplexity(p.complexity) : undefined,
   };
 }
 

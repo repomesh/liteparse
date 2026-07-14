@@ -61,6 +61,10 @@ program
   .option("--config <file>", "JSON config file path")
   .option("-q, --quiet", "Suppress progress output")
   .option("--num-workers <n>", "Number of concurrent OCR workers", parseInt)
+  .option(
+    "--complexity",
+    "Include per-page complexity signals in JSON output",
+  )
   .action(async (file: string, opts: Record<string, unknown>) => {
     try {
       const config: Partial<LiteParseConfig> = {};
@@ -91,6 +95,7 @@ program
       if (opts.password) config.password = opts.password as string;
       if (opts.quiet) config.quiet = true;
       if (opts.numWorkers) config.numWorkers = opts.numWorkers as number;
+      if (opts.complexity) config.includeComplexity = true;
 
       // Default CLI output to text (library defaults to json)
       if (!config.outputFormat) config.outputFormat = "text";

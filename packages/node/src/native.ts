@@ -40,6 +40,7 @@ export interface LiteParseNativeConfig {
   emitWordBoxes?: boolean;
   cropBox?: NativeCropBox;
   skipDiagonalText?: boolean;
+  includeComplexity?: boolean;
 }
 
 export interface NativeCropBox {
@@ -102,6 +103,7 @@ export interface NativeParsedPage {
   text: string;
   markdown: string;
   textItems: NativeTextItem[];
+  complexity?: NativePageComplexityStats;
 }
 
 export interface NativeExtractedImage {

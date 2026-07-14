@@ -43,6 +43,10 @@ class ParsedPage:
     text: str
     markdown: str = ""
     text_items: List[TextItem] = field(default_factory=list)
+    #: Per-page complexity signals (the same :meth:`LiteParse.is_complex`
+    #: returns). Populated only when parsing with ``include_complexity=True``;
+    #: ``None`` otherwise.
+    complexity: Optional[PageComplexityStats] = None
 
 
 @dataclass

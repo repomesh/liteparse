@@ -75,7 +75,7 @@ impl ComplexityReason {
     }
 }
 
-#[derive(Debug, Serialize)]
+#[derive(Debug, Clone, Serialize)]
 pub struct PageComplexityStats {
     pub page_number: usize,
     pub text_length: usize,

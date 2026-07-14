@@ -119,6 +119,12 @@ struct ParseCommand {
     /// parity, where ground truth uses no link syntax).
     #[arg(long)]
     no_links: bool,
+
+    /// Include per-page complexity signals (the same `is-complex` reports) as a
+    /// `complexity` object on each page of JSON output. Off by default; enabling
+    /// it runs the extra vector-text detection pass.
+    #[arg(long)]
+    complexity: bool,
 }
 
 #[derive(Args, Debug)]
@@ -207,6 +213,11 @@ struct BatchParseCommand {
     /// Number of concurrent OCR workers (default: CPU cores - 1)
     #[arg(long)]
     num_workers: Option<usize>,
+
+    /// Include per-page complexity signals as a `complexity` object on each
+    /// page of JSON output. Off by default.
+    #[arg(long)]
+    complexity: bool,
 }
 
 #[derive(Args, Debug)]
@@ -308,6 +319,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                 ocr_server_headers: cmd.ocr_server_headers,
                 image_mode,
                 extract_links: !cmd.no_links,
+                include_complexity: cmd.complexity,
                 ..Default::default()
             };
             if let Some(n) = cmd.num_workers {
@@ -408,6 +420,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                 quiet: cmd.quiet,
                 ocr_server_url: cmd.ocr_server_url,
                 ocr_server_headers: cmd.ocr_server_headers,
+                include_complexity: cmd.complexity,
                 ..Default::default()
             };
             if let Some(n) = cmd.num_workers {
