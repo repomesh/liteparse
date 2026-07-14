@@ -1,3 +1,5 @@
+from importlib.metadata import PackageNotFoundError, version
+
 from .parser import LiteParse, search_items
 from .types import (
     ExtractedImage,
@@ -11,7 +13,10 @@ from .types import (
     ParseError,
 )
 
-__version__ = "2.0.0"
+try:
+    __version__ = version("liteparse")
+except PackageNotFoundError:  # source tree without installed dist metadata
+    __version__ = "0.0.0+unknown"
 __all__ = [
     "LiteParse",
     "LiteParseConfig",
